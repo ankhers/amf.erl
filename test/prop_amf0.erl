@@ -2,8 +2,6 @@
 
 -include_lib("proper/include/proper.hrl").
 
--include("../src/amf0.hrl").
-
 %%%%%%%%%%%%%%%%%%
 %%% Properties %%%
 %%%%%%%%%%%%%%%%%%
@@ -29,12 +27,12 @@ prop_strings() ->
 
 prop_object() ->
     ?FORALL(
-        Map,
+        {amf0_object, Map1} = Obj,
         amf0_object(),
         begin
-            Bin = amf0:encode(Map),
-            {ok, NewMap, <<>>} = amf0:decode(Bin),
-            deep_compare(Map, NewMap)
+            Bin = amf0:encode(Obj),
+            {ok, {amf0_object, Map2}, <<>>} = amf0:decode(Bin),
+            deep_compare(Map1, Map2)
         end
     ).
 
@@ -57,6 +55,16 @@ prop_strict_array() ->
             Bin = amf0:encode(Array),
             {ok, {array, Size, _, Val, _}, <<>>} = amf0:decode(Bin),
             true
+        end
+    ).
+
+prop_date() ->
+    ?FORALL(
+        {amf0_date, Millis} = Date,
+        amf0_date(),
+        begin
+            Bin = amf0:encode(Date),
+            {ok, {date, Millis}, <<>>} == amf0:decode(Bin)
         end
     ).
 
@@ -84,11 +92,11 @@ prop_xml_document() ->
 
 prop_typed_object() ->
     ?FORALL(
-        #typed_object{class_name = ClassName, data = Map1} = Obj,
+        {amf0_typed_object, ClassName, Map1} = Obj,
         amf0_typed_object(),
         begin
             Bin = amf0:encode(Obj),
-            {ok, #typed_object{class_name = ClassName, data = Map2}, <<>>} = amf0:decode(Bin),
+            {ok, {amf0_typed_object, ClassName, Map2}, <<>>} = amf0:decode(Bin),
             deep_compare(Map1, Map2)
         end
     ).
@@ -117,10 +125,9 @@ compare_kv([{K, V} | Tail], Map) ->
             false
     end.
 
-compare_values(#typed_object{class_name = ClassName, data = Map1}, #typed_object{
-    class_name = ClassName,
-    data = Map2
-}) ->
+compare_values({amf0_typed_object, ClassName, Map1}, {amf0_typed_object, ClassName, Map2}) ->
+    deep_compare(Map1, Map2);
+compare_values({amf0_object, Map1}, {amf0_object, Map2}) ->
     deep_compare(Map1, Map2);
 compare_values(Map1, Map2) when is_map(Map1) andalso is_map(Map2) ->
     deep_compare(Map1, Map2);
@@ -138,25 +145,26 @@ amf0_number() -> number().
 
 amf0_string() -> ?LET(N, range(0, 16#FFFF), binary(N)).
 
-%% TODO: Loosen up these key value types
-amf0_object() -> map(binary(), amf0_any()).
+% TODO: Loosen up these key value types
+amf0_object() -> ?LET(Map, map(binary(), amf0_any()), {amf0_object, Map}).
 
 amf0_ecma_array() -> list({binary(), binary()}).
 
 amf0_strict_array() -> ?LET(List, list(binary()), array:from_list(List)).
 
-amf0_date() -> non_neg_integer().
+amf0_date() -> ?LET(N, non_neg_integer(), {amf0_date, N}).
 
 amf0_long_string() -> ?LET(N, non_neg_integer(), binary(N + 16#FFFF + 1)).
 
 amf0_xml_document() ->
-    ?LET(S, oneof([amf0_string(), amf0_long_string()]), #xml_document{document = S}).
+    ?LET(S, oneof([amf0_string(), amf0_long_string()]), {amf0_xml_document, S}).
 
 amf0_typed_object() ->
-    ?LET({ClassName, Map}, {amf0_string(), amf0_object()}, #typed_object{
-        class_name = ClassName,
-        data = Map
-    }).
+    ?LET(
+        {ClassName, {_, Map}},
+        {amf0_string(), amf0_object()},
+        {amf0_typed_object, ClassName, Map}
+    ).
 
 amf0_any() ->
     frequency([

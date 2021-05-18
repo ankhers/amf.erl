@@ -19,8 +19,6 @@
 -define(TYPED_OBJECT_MARKER, 16#10).
 -define(AVMPLUS_OBJECT_MARKER, 16#11).
 
--include("amf0.hrl").
-
 -export([decode/1, encode/1]).
 
 -spec decode(binary()) -> {ok, term(), binary()} | {error, term()}.
@@ -77,7 +75,7 @@ encode(Bin) when is_binary(Bin) ->
                 {?LONG_STRING_MARKER, 32}
         end,
     <<Marker:8, ByteSize:Size, Bin/binary>>;
-encode(Map) when is_map(Map) ->
+encode({amf0_object, Map}) ->
     Object = maps:fold(
         fun(K, V, Acc) ->
             KV = encode_key_value(K, V),
@@ -115,13 +113,19 @@ encode({array, _, _, _, _} = Array) ->
         Array
     ),
     <<?STRICT_ARRAY_MARKER:8, Size:32, Bin/binary>>;
-encode(#xml_document{document = S}) ->
+encode({amf0_date, Millis}) ->
+    <<?DATE_MARKER:8, Millis/float, 0:16>>;
+encode(unsupported) ->
+    <<?UNSUPPORTED_MARKER:8>>;
+encode({amf0_xml_document, S}) ->
     ByteSize = byte_size(S),
     <<?XML_DOCUMENT_MARKER:8, ByteSize:32, S/binary>>;
-encode(#typed_object{class_name = ClassName, data = Data}) ->
-    <<_Marker:8, Bin/binary>> = encode(Data),
+encode({amf0_typed_object, ClassName, Data}) ->
+    <<_Marker:8, Bin/binary>> = encode({amf0_object, Data}),
     ByteSize = byte_size(ClassName),
-    <<?TYPED_OBJECT_MARKER:8, ByteSize:16, ClassName/binary, Bin/binary>>.
+    <<?TYPED_OBJECT_MARKER:8, ByteSize:16, ClassName/binary, Bin/binary>>;
+encode(avmplus) ->
+    <<?AVMPLUS_OBJECT_MARKER:8>>.
 
 encode_key_value(Key, Value) ->
     K = encode(Key),
@@ -155,7 +159,7 @@ decode_object(Bin, Map) ->
     {ok, Key, Rest1} = decode(Bin),
     case decode(Rest1) of
         {ok, object_end, Rest} ->
-            {ok, Map, Rest};
+            {ok, {amf0_object, Map}, Rest};
         {ok, Value, Rest} ->
             decode_object(Rest, maps:put(Key, Value, Map))
     end.
@@ -202,7 +206,7 @@ decode_strict_array(Bin, Idx, Max, Array) ->
 
 -spec decode_date(binary()) -> {ok, calendar:datetime(), binary()}.
 decode_date(<<Millis/float, 16#0000:16, Rest/binary>>) ->
-    {ok, calendar:system_time_to_universal_time(round(Millis), millisecond), Rest}.
+    {ok, {date, Millis}, Rest}.
 
 -spec decode_long_string(binary()) -> {ok, binary(), binary()}.
 decode_long_string(<<Len:32, String:Len/binary, Rest/binary>>) ->
@@ -212,16 +216,16 @@ decode_long_string(<<Len:32, String:Len/binary, Rest/binary>>) ->
 decode_unsupported(Bin) ->
     {ok, unsupported, Bin}.
 
--spec decode_xml_document(binary()) -> {ok, #xml_document{}, binary()}.
+-spec decode_xml_document(binary()) -> {ok, {xml_document, binary()}, binary()}.
 decode_xml_document(Bin) ->
     {ok, String, Rest} = decode_long_string(Bin),
-    {ok, #xml_document{document = String}, Rest}.
+    {ok, {amf0_xml_document, String}, Rest}.
 
--spec decode_typed_object(binary()) -> {ok, #typed_object{}, binary()}.
+-spec decode_typed_object(binary()) -> {ok, {typed_object, binary(), map()}, binary()}.
 decode_typed_object(Bin) ->
     {ok, ClassName, Rest1} = decode_string(Bin),
-    {ok, Map, Rest} = decode_object(Rest1, maps:new()),
-    {ok, #typed_object{class_name = ClassName, data = Map}, Rest}.
+    {ok, {amf0_object, Map}, Rest} = decode_object(Rest1, maps:new()),
+    {ok, {amf0_typed_object, ClassName, Map}, Rest}.
 
 decode_avmplus(Bin) ->
     {ok, avmplus, Bin}.

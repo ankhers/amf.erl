@@ -21,3 +21,13 @@ undefined_test() ->
     Bin = amf0:encode(undefined),
     ?assert({ok, undefined, <<>>} =:= amf0:decode(Bin)),
     ok.
+
+unsupported_test() ->
+    Bin = amf0:encode(unsupported),
+    ?assert({ok, unsupported, <<>>} =:= amf0:decode(Bin)),
+    ok.
+
+avm_plus_test() ->
+    Bin = amf0:encode(avmplus),
+    ?assert({ok, avmplus, <<>>} =:= amf0:decode(Bin)),
+    ok.
