@@ -64,7 +64,7 @@ prop_date() ->
         amf0_date(),
         begin
             Bin = amf0:encode(Date),
-            {ok, {date, Millis}, <<>>} == amf0:decode(Bin)
+            {ok, {amf0_date, Millis}, <<>>} == amf0:decode(Bin)
         end
     ).
 

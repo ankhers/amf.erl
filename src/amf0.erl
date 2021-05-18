@@ -21,7 +21,26 @@
 
 -export([decode/1, encode/1]).
 
--spec decode(binary()) -> {ok, term(), binary()} | {error, term()}.
+-type amf0_value() ::
+    number()
+    | boolean()
+    | binary()
+    | {amf0_object, map()}
+    | null
+    | undefined
+    | reference
+    | list(amf0_value)
+    | object_end
+    | array:array()
+    | {amf0_date, non_neg_integer()}
+    | unsupported
+    | {amf0_xml_document, binary()}
+    | {amf0_typed_object, binary(), map()}
+    | avmplus.
+
+-export_type([amf0_value/0]).
+
+-spec decode(binary()) -> {ok, amf0_value(), binary()} | {error, term()}.
 decode(<<Marker:8, Rest/binary>>) ->
     case Marker of
         ?NUMBER_MARKER ->
@@ -58,7 +77,7 @@ decode(<<Marker:8, Rest/binary>>) ->
             decode_avmplus(Rest)
     end.
 
--spec encode(term()) -> binary().
+-spec encode(amf0_value()) -> binary().
 encode(N) when is_number(N) ->
     <<?NUMBER_MARKER:8, N/float>>;
 encode(false) ->
@@ -102,17 +121,6 @@ encode(List) when is_list(List) ->
         List
     ),
     <<?ECMA_ARRAY_MARKER:8, N:32, Bin/binary>>;
-encode({array, _, _, _, _} = Array) ->
-    Size = array:size(Array),
-    Bin = array:foldl(
-        fun(_Idx, V, Acc) ->
-            Bin = encode(V),
-            <<Acc/binary, Bin/binary>>
-        end,
-        <<>>,
-        Array
-    ),
-    <<?STRICT_ARRAY_MARKER:8, Size:32, Bin/binary>>;
 encode({amf0_date, Millis}) ->
     <<?DATE_MARKER:8, Millis/float, 0:16>>;
 encode(unsupported) ->
@@ -125,7 +133,18 @@ encode({amf0_typed_object, ClassName, Data}) ->
     ByteSize = byte_size(ClassName),
     <<?TYPED_OBJECT_MARKER:8, ByteSize:16, ClassName/binary, Bin/binary>>;
 encode(avmplus) ->
-    <<?AVMPLUS_OBJECT_MARKER:8>>.
+    <<?AVMPLUS_OBJECT_MARKER:8>>;
+encode(Array) ->
+    Size = array:size(Array),
+    Bin = array:foldl(
+        fun(_Idx, V, Acc) ->
+            Bin = encode(V),
+            <<Acc/binary, Bin/binary>>
+        end,
+        <<>>,
+        Array
+    ),
+    <<?STRICT_ARRAY_MARKER:8, Size:32, Bin/binary>>.
 
 encode_key_value(Key, Value) ->
     K = encode(Key),
@@ -148,13 +167,13 @@ decode_string(<<Len:16, String:Len/binary, Rest/binary>>) ->
 decode_string(_Bin) ->
     {error, insufficient_data}.
 
--spec decode_object(binary()) -> {ok, map(), binary()}.
+-spec decode_object(binary()) -> {ok, {amf0_object, map()}, binary()}.
 decode_object(Bin) ->
     decode_object(Bin, maps:new()).
 
 %% Object end markers are preceeded by an empty string.
 %% So it would technically look like the key is <<"">> and the value is object_end.
--spec decode_object(binary(), map()) -> {ok, map(), binary()}.
+-spec decode_object(binary(), map()) -> {ok, {amf0_object, map()}, binary()}.
 decode_object(Bin, Map) ->
     {ok, Key, Rest1} = decode(Bin),
     case decode(Rest1) of
@@ -204,9 +223,9 @@ decode_strict_array(Bin, Idx, Max, Array) ->
     {ok, Value, Rest} = decode(Bin),
     decode_strict_array(Rest, Idx + 1, Max, array:set(Idx, Value, Array)).
 
--spec decode_date(binary()) -> {ok, calendar:datetime(), binary()}.
+-spec decode_date(binary()) -> {ok, {amf0_date, float()}, binary()}.
 decode_date(<<Millis/float, 16#0000:16, Rest/binary>>) ->
-    {ok, {date, Millis}, Rest}.
+    {ok, {amf0_date, Millis}, Rest}.
 
 -spec decode_long_string(binary()) -> {ok, binary(), binary()}.
 decode_long_string(<<Len:32, String:Len/binary, Rest/binary>>) ->
@@ -216,12 +235,12 @@ decode_long_string(<<Len:32, String:Len/binary, Rest/binary>>) ->
 decode_unsupported(Bin) ->
     {ok, unsupported, Bin}.
 
--spec decode_xml_document(binary()) -> {ok, {xml_document, binary()}, binary()}.
+-spec decode_xml_document(binary()) -> {ok, {amf0_xml_document, binary()}, binary()}.
 decode_xml_document(Bin) ->
     {ok, String, Rest} = decode_long_string(Bin),
     {ok, {amf0_xml_document, String}, Rest}.
 
--spec decode_typed_object(binary()) -> {ok, {typed_object, binary(), map()}, binary()}.
+-spec decode_typed_object(binary()) -> {ok, {amf0_typed_object, binary(), map()}, binary()}.
 decode_typed_object(Bin) ->
     {ok, ClassName, Rest1} = decode_string(Bin),
     {ok, {amf0_object, Map}, Rest} = decode_object(Rest1, maps:new()),
