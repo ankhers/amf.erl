@@ -19,5 +19,5 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - run: rebar3 eunit
-      - run: rebar3 proper -n 1000
+      - run: rebar3 proper
       - run: rebar3 dialyzer
