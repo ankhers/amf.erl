@@ -1,0 +1,2 @@
+-record(xml_document, {document :: binary()}).
+-record(typed_object, {class_name :: binary(), data :: map()}).
