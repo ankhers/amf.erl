@@ -145,7 +145,6 @@ amf0_number() -> number().
 
 amf0_string() -> ?LET(N, range(0, 16#FFFF), binary(N)).
 
-% TODO: Loosen up these key value types
 amf0_object() -> ?LET(Map, map(binary(), amf0_any()), {amf0_object, Map}).
 
 amf0_ecma_array() -> list({binary(), binary()}).

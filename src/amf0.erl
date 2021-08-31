@@ -19,7 +19,7 @@
 -define(TYPED_OBJECT_MARKER, 16#10).
 -define(AVMPLUS_OBJECT_MARKER, 16#11).
 
--export([decode/1, encode/1]).
+-export([decode/1, encode/1, decode_key/1, encode_key/1]).
 
 -type amf0_value() ::
     number()
@@ -97,14 +97,14 @@ encode(Bin) when is_binary(Bin) ->
 encode({amf0_object, Map}) ->
     Object = maps:fold(
         fun(K, V, Acc) ->
-            KV = encode_key_value(K, V),
-            <<Acc/binary, KV/binary>>
+            Key = encode_key(K),
+            Val = encode(V),
+            <<Acc/binary, Key/binary, Val/binary>>
         end,
         <<?OBJECT_MARKER:8>>,
         Map
     ),
-    EmptyStr = encode(<<>>),
-    <<Object/binary, EmptyStr/binary, ?OBJECT_END_MARKER>>;
+    <<Object/binary, 0:16, ?OBJECT_END_MARKER>>;
 encode(null) ->
     <<?NULL_MARKER>>;
 encode(undefined) ->
@@ -114,8 +114,8 @@ encode(reference) ->
 encode(List) when is_list(List) ->
     {N, Bin} = lists:foldl(
         fun({K, V}, {N, Acc}) ->
-            Bin = encode_key_value(K, V),
-            {N + 1, <<Acc/binary, Bin/binary>>}
+            KV = encode_key_value(K, V),
+            {N + 1, <<Acc/binary, KV/binary>>}
         end,
         {0, <<>>},
         List
@@ -146,6 +146,10 @@ encode(Array) ->
     ),
     <<?STRICT_ARRAY_MARKER:8, Size:32, Bin/binary>>.
 
+encode_key(Bin) ->
+    Len = byte_size(Bin),
+    <<Len:16, Bin/binary>>.
+
 encode_key_value(Key, Value) ->
     K = encode(Key),
     V = encode(Value),
@@ -172,16 +176,20 @@ decode_object(Bin) ->
     decode_object(Bin, maps:new()).
 
 %% Object end markers are preceeded by an empty string.
-%% So it would technically look like the key is <<"">> and the value is object_end.
+%% So it would technically look like the key is <<>> and the value is object_end.
 -spec decode_object(binary(), map()) -> {ok, {amf0_object, map()}, binary()}.
 decode_object(Bin, Map) ->
-    {ok, Key, Rest1} = decode(Bin),
+    {ok, Key, Rest1} = decode_key(Bin),
     case decode(Rest1) of
         {ok, object_end, Rest} ->
             {ok, {amf0_object, Map}, Rest};
         {ok, Value, Rest} ->
             decode_object(Rest, maps:put(Key, Value, Map))
     end.
+
+decode_key(<<Len:16, Rest1/binary>>) ->
+    <<Key:Len/binary, Rest/binary>> = Rest1,
+    {ok, Key, Rest}.
 
 -spec decode_null(binary()) -> {ok, null, binary()}.
 decode_null(Rest) ->
